@@ -1,0 +1,150 @@
+# Portfolio Optimization — Default Configuration
+# All parameters that might change between runs live here.
+
+# Experiment metadata
+experiment_name: "default"
+master_seed: 42
+
+# Problem dimensions
+n_fields: 9
+n_hosts: 3
+n_years: 45
+max_start_year: 15 # Latest year a field can begin development (0-indexed)
+
+# ── Price model (Schwartz-Smith two-factor) ──────────────────────
+# Produces oil in USD/bbl, gas in USD/MMBtu.
+# Conversion to NOK happens in the valuation module.
+price:
+  model: "schwartz_smith"
+  n_scenarios: 200 # Scenarios for PSO evaluation
+  n_scenarios_final: 10000 # Scenarios for Pareto front re-evaluation
+
+  # Oil parameters
+  # Output: USD/bbl (exp(4.26) ≈ $71/bbl)
+  oil:
+    E0: 4.26 # Initial long-term log price level
+    X0: 0.0 # Initial short-term deviation
+    sigma_E: 0.219507719 # Long-term volatility
+    sigma_X: 0.466884607 # Short-term volatility
+    lambda_X: -0.08297726 # Short-term risk premium
+    mu_star: -0.01999413 # Risk-neutral long-term drift
+    kappa: 0.501016539 # Mean-reversion speed
+    rho: -0.713678096 # Short/long factor correlation
+
+  # Gas parameters
+  # Model outputs in internal units; multiply by unit_conversion → USD/MMBtu
+  gas:
+    E0: 4.8 # Initial long-term log price (internal units)
+    X0: 0.0 # Initial short-term deviation
+    sigma_E: 0.245022334 # Long-term volatility
+    sigma_X: 0.748697922 # Short-term volatility
+    lambda_X: -0.072300456 # Short-term risk premium
+    mu_star: -0.045811008 # Risk-neutral long-term drift
+    kappa: 0.909596937 # Mean-reversion speed
+    rho: -0.630382411 # Short/long factor correlation
+    unit_conversion: 0.123881 # Convert internal units → USD/MMBtu
+
+  # Oil-gas cross-commodity correlation (short-term shocks)
+  rho_oil_gas: 0.64
+
+# ── Valuation ────────────────────────────────────────────────────
+valuation:
+  discount_rate: 0.08 # 8% real discount rate
+  cvar_alpha: 0.05 # 5% tail for CVaR
+
+  # Unit conversion constants
+  # Used in NPV: production (Sm3) × conversion → revenue units × price
+  barrel: 6.29 # Barrels per Sm3 (oil/water)
+  btu: 37.913 # M-MMBtu per BSm3 — converts BSm3 → M-MMBtu
+  USD_MMBTU: 0.123881 # Gas price unit conversion factor (unused)
+  nok_per_usd: 10.0 # Exchange rate NOK/USD
+
+# ── Data generation ──────────────────────────────────────────────
+data_generation:
+  # Spatial placement
+  area_size_km: 100 # Fields and hosts in [0, 100] × [0, 100] km
+  host_placement: "clustered" # "random" or "clustered" (K-means on field positions)
+
+  # Oil profile parameters (per field)
+  oil_in_place_mean: 10.0 # MSm3 (oil in place) — calibrated for tieback-size fields
+  oil_in_place_std: 3.0
+  oil_in_place_min: 2.0
+  recovery_factor_min: 0.25
+  recovery_factor_max: 0.55
+  ramp_years_min: 1
+  ramp_years_max: 2
+  decline_rate_min: 0.06
+  decline_rate_max: 0.18
+  production_cutoff_fraction: 0.01 # Stop production below 1% of peak rate
+
+  # Gas (GOR-based)
+  gor_log_mean: 5.52 # ln(250) — Sm3 gas / Sm3 oil
+  gor_log_std: 0.35
+  gor_min: 50.0
+  gor_max: 2000.0
+
+  # Water cut (logistic curve)
+  wc_initial_max: 0.10 # Max initial water cut
+  wc_final_min: 0.60 # Min final water cut
+  wc_final_max: 0.98
+  wc_midpoint_offset_min: 4 # Years after start to logistic midpoint
+  wc_midpoint_offset_max: 12
+  wc_steepness_min: 0.25
+  wc_steepness_max: 0.90
+
+  # Reservoir complexity — per-well productivity multiplier
+  complexity_factor_min: 0.3 # complex reservoir (poor per-well productivity)
+  complexity_factor_max: 1.0 # simple reservoir (full per-well productivity)
+
+  # Reservoir depth
+  depth_min: 500 # meters (shallow)
+  depth_max: 4500 # meters (HPHT territory starts ~4000m)
+
+  # Well parameters
+  per_well_rate: 0.15 # MSm3/y per well at complexity_factor=1.0
+  wells_per_msm3: 1.5 # base wells needed per MSm3 of UR
+  max_wells: 25 # maximum wells per field (PSO can choose 1..25)
+
+  # Host capacity
+  host_oil_capacity_min: 0.1 # MSm3/y
+  host_oil_capacity_max: 0.8
+  host_gas_capacity_min: 0.05 # BSm3/y
+  host_gas_capacity_max: 0.3
+  host_water_capacity_min: 0.3
+  host_water_capacity_max: 1.5
+
+  # Drilling costs (per well, depth-dependent)
+  well_cost_base: 400 # MNOK per well at reference depth (0 m)
+  well_cost_depth_factor: 0.08 # MNOK per meter depth per well
+  subsea_base: 2000 # MNOK per tieback (subsea infrastructure)
+
+  # Pipeline (quadratic with distance)
+  pipeline_cost_per_km2: 3.0 # MNOK per km^2
+
+  # Operating costs (per host)
+  opex_rate_min: 30 # MNOK/year fixed (per host, shared across fields)
+  opex_rate_max: 80
+  variable_opex_min: 2.0 # USD/bbl — production-dependent cost per host
+  variable_opex_max: 20.0
+
+  # Abandonment costs (per host)
+  abex_min: 50 # MNOK abandonment (per host)
+  abex_max: 80
+
+# ── PSO (DSBPSO) ────────────────────────────────────────────────
+pso:
+  n_particles: 200
+  max_iterations: 2000
+  archive_size: 200
+
+  # DSBPSO dynamic parameters (Nguyen et al. 2021)
+  alpha: 2.0 # Ratio i_p / i_g
+  is_initial_factor: 10.0 # Initial exploration i_s = factor / n_bits (~factor random flips per particle)
+  ustk_initial_pct: 1 # Unsticking period: start at 1% of iterations
+  ustk_final_pct: 10 # End at 10% of iterations
+
+  # Constraint handling
+  feasibility_tol: 1.0e-6 # Tolerance for capacity constraint violations
+
+  # Parallelism
+  n_workers: 20 # Worker processes for evaluation (1 = sequential, >1 = parallel)
